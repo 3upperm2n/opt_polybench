@@ -120,21 +120,80 @@ void GPU_argv_init()
 	cudaSetDevice( GPU_DEVICE );
 }
 
-
+/**
+ * Kernel to update. TODO:
+ *  - Shared memory
+ *  - Iterate over the elements
+ *  - Diff this to the simple matrix multiplication
+ *      - Memory is multiplied by BETA and then added, not overriden,
+ *      - Memory is retrieved (simply n x m extra ops)
+ *      - Each element is also multiplied by ALPHA
+ */
 __global__ void gemm_kernel(DATA_TYPE *a, DATA_TYPE *b, DATA_TYPE *c)
 {
+        /* Allocate shared memory */
+        __shared__ DATA_TYPE s_a[256];
+        __shared__ DATA_TYPE s_b[256];
+        
+        /* Column, A.w, {0, ... NJ} */
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
+        /* Row, B.h, {0, ... NI} */
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
-
-	if ((i < NI) && (j < NJ))
-	{	
-		c[i * NJ + j] *= BETA;
-		int k;
-		for(k=0; k < NK; k++)
-		{
-			c[i * NJ + j] += ALPHA * a[i * NK + k] * b[k * NJ +j];
-		}
-	}
+        
+        /* Compute offset idx for A & B */
+	// First A index - BlockRow*BlockWidth*Width-A
+	int a_0 = NJ * 16 * blockIdx.y;
+	// aBegin -> last element in row -> + width - 1
+	int a_last = a_0 + NJ - 1;
+	// Column block iteration = blockDim.x
+	int a_plus = 16;
+	// b_0 -> Column Shift
+	int b_0 = 16 * blockIdx.x;
+        // Row block iteration = blockDim.y * width B
+	int b_plus = 16 * NI;
+        
+        /* Fetch once, then multiply and store in register */
+        DATA_TYPE sum = c[i * NJ + j];
+        
+        /* Iterate over blocks moving to right over A, downwards over B indexes */
+        int a_i, b_i;
+        for(a_i = a_0, b_i = b_0; a_i <= a_last; a_i += a_plus, b_i += b_plus)
+        {
+                /* Fetch global to local memory */
+                // Each thread grabs two global memory pieces out of 266*2
+		// (a is the dynamic start, ty is the row (needs to be accounted for whole matrix size)
+		// tx is the column, can be just added
+                s_a[threadIdx.y*16 + threadIdx.x] = a[a_i + threadIdx.y * NJ + threadIdx.x];
+		s_b[threadIdx.y*16 + threadIdx.x] = b[b_i + threadIdx.y * NI + threadIdx.x];
+                __syncthreads();
+                
+                /* Sum over NK */
+                int k;
+                for(k=0; k<NK; k++)
+                {
+                        /* C = BETA*C + ALPHA*(A x B) */
+                        sum += ALPHA * s_a[threadIdx.y * 16 + k] * s_b[k * 16 + threadIdx.x];
+                }
+        }
+        
+        c[i * NJ + j] = sum;
+        
+        // DEFAULT WORK, KEEPING IT FOR REFERENCE, 
+        //    IT MAY BE USEFUL FOR PRESENTATION, DEBUGGING ETC ETC!!!
+        
+        /* Check if both i and j are within boundaries */
+//	if ((i < NI) && (j < NJ))
+//	{	
+//                /* Multiply previous c value by Beta, retrieve and store, BAD */
+//		c[i * NJ + j] *= BETA;
+//                /* Sum over NK */
+//		int k;
+//		for(k=0; k < NK; k++)
+//		{
+//                        /* C = C*BETA + ALPHA*(A x B) */
+//			c[i * NJ + j] += ALPHA * a[i * NK + k] * b[k * NJ +j];
+//		}
+//	}
 }
 
 
