@@ -29,8 +29,10 @@
 #define NK 512
 
 /* Thread block dimensions */
-#define DIM_THREAD_BLOCK_X 32
-#define DIM_THREAD_BLOCK_Y 8
+//#define DIM_THREAD_BLOCK_X 32
+//#define DIM_THREAD_BLOCK_Y 8
+#define DIM_THREAD_BLOCK_X 16
+#define DIM_THREAD_BLOCK_Y 16
 
 /* Declared constant values for ALPHA and BETA (same as values in PolyBench 2.0) */
 #define ALPHA 32412.0f
@@ -140,20 +142,27 @@ __global__ void gemm_kernel(DATA_TYPE *a, DATA_TYPE *b, DATA_TYPE *c)
         /* Row, B.h, {0, ... NI} */
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
         
+        int bx = blockIdx.x;
+        int by = blockIdx.y;
+        
+        int tx = threadIdx.x;
+        int ty = threadIdx.y;
+        
         /* Compute offset idx for A & B */
-	// First A index - BlockRow*BlockWidth*Width-A
-	int a_0 = NJ * 16 * blockIdx.y;
+	// First A index (row shift) BlockRow*BlockWidth*Width-A
+	int a_0 = NK * 16 * by;
 	// aBegin -> last element in row -> + width - 1
-	int a_last = a_0 + NJ - 1;
+	int a_last = a_0 + NK - 1;
 	// Column block iteration = blockDim.x
 	int a_plus = 16;
 	// b_0 -> Column Shift
-	int b_0 = 16 * blockIdx.x;
+	int b_0 = 16 * bx;
         // Row block iteration = blockDim.y * width B
-	int b_plus = 16 * NI;
+	int b_plus = 16 * NJ;
         
         /* Fetch once, then multiply and store in register */
-        DATA_TYPE sum = c[i * NJ + j];
+        DATA_TYPE sum = (DATA_TYPE) 0;
+        //DATA_TYPE sum = c[i * NJ + j]*BETA;
         
         /* Iterate over blocks moving to right over A, downwards over B indexes */
         int a_i, b_i;
@@ -163,20 +172,20 @@ __global__ void gemm_kernel(DATA_TYPE *a, DATA_TYPE *b, DATA_TYPE *c)
                 // Each thread grabs two global memory pieces out of 266*2
 		// (a is the dynamic start, ty is the row (needs to be accounted for whole matrix size)
 		// tx is the column, can be just added
-                s_a[threadIdx.y*16 + threadIdx.x] = a[a_i + threadIdx.y * NJ + threadIdx.x];
-		s_b[threadIdx.y*16 + threadIdx.x] = b[b_i + threadIdx.y * NI + threadIdx.x];
+                s_a[threadIdx.y*16 + threadIdx.x] = a[a_i + threadIdx.y * NK + threadIdx.x];
+		s_b[threadIdx.y*16 + threadIdx.x] = b[b_i + threadIdx.y * NJ + threadIdx.x];
                 __syncthreads();
                 
                 /* Sum over NK */
                 int k;
-                for(k=0; k<NK; k++)
+                for(k=0; k < 16; k++)
                 {
                         /* C = BETA*C + ALPHA*(A x B) */
-                        sum += ALPHA * s_a[threadIdx.y * 16 + k] * s_b[k * 16 + threadIdx.x];
+                        sum += s_a[ty * 16 + k] * s_b[k * 16 + tx];
                 }
         }
         
-        c[i * NJ + j] = sum;
+        c[i * NJ + j] = ALPHA*sum + BETA*c[i * NJ + j];
         
         // DEFAULT WORK, KEEPING IT FOR REFERENCE, 
         //    IT MAY BE USEFUL FOR PRESENTATION, DEBUGGING ETC ETC!!!
