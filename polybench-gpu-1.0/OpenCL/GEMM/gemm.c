@@ -12,6 +12,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include <math.h>
+#include <assert.h>
 
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
@@ -19,7 +20,7 @@
 #include <CL/cl.h>
 #endif
 
-#include "../../common/polybenchUtilFuncts.h"
+#include "../../common/polybenchUtilFuncts.h" // rclock
 
 //define the error threshold for the results "not matching"
 #define PERCENT_DIFF_ERROR_THRESHOLD 0.05
@@ -163,7 +164,8 @@ void cl_initialization()
 	if(errcode != CL_SUCCESS) printf("Error in creating context\n");
  
 	//Create a command-queue
-	clCommandQue = clCreateCommandQueue(clGPUContext, device_id, 0, &errcode);
+	//clCommandQue = clCreateCommandQueue(clGPUContext, device_id, 0, &errcode);
+	clCommandQue = clCreateCommandQueue(clGPUContext, device_id, CL_QUEUE_PROFILING_ENABLE, &errcode);
 	if(errcode != CL_SUCCESS) printf("Error in creating command queue\n");
 }
 
@@ -203,7 +205,7 @@ void cl_load_prog()
 
 void cl_launch_kernel()
 {
-	double t_start, t_end;
+	cl_event e;
 
 	int ni=NI;
 	int nj=NJ;
@@ -218,7 +220,7 @@ void cl_launch_kernel()
 	globalWorkSize[0] = (size_t)ceil(((float)NJ) / ((float)DIM_LOCAL_WORK_GROUP_X)) * DIM_LOCAL_WORK_GROUP_X;
 	globalWorkSize[1] = (size_t)ceil(((float)NI) / ((float)DIM_LOCAL_WORK_GROUP_Y)) * DIM_LOCAL_WORK_GROUP_Y;
 
-	t_start = rtclock();
+	//t_start = rtclock();
 	
 	// Set the arguments of the kernel
 	errcode =  clSetKernelArg(clKernel, 0, sizeof(cl_mem), (void *)&a_mem_obj);
@@ -233,12 +235,41 @@ void cl_launch_kernel()
 	if(errcode != CL_SUCCESS) printf("Error in seting arguments\n");
 
 	// Execute the OpenCL kernel
-	errcode = clEnqueueNDRangeKernel(clCommandQue, clKernel, 2, NULL, globalWorkSize, localWorkSize, 0, NULL, NULL);
+	//errcode = clEnqueueNDRangeKernel(clCommandQue, clKernel, 2, NULL, globalWorkSize, localWorkSize, 0, NULL, NULL);
+	errcode = clEnqueueNDRangeKernel(clCommandQue, clKernel, 2, NULL, globalWorkSize, localWorkSize, 0, NULL, &e);
 	if(errcode != CL_SUCCESS) printf("Error in launching kernel\n");
 	clFinish(clCommandQue);
 
-	t_end = rtclock();
-	fprintf(stdout, "GPU Runtime: %0.6lfs\n", t_end - t_start);
+	//Print kernel execution time
+	cl_ulong t_start = 0;
+	errcode = clGetEventProfilingInfo(
+			e, 
+			CL_PROFILING_COMMAND_START, 
+			sizeof(cl_ulong), 
+			&t_start, 
+			NULL);
+	assert(errcode == CL_SUCCESS);
+
+	cl_ulong t_end = 0;
+	errcode = clGetEventProfilingInfo(
+			e, 
+			CL_PROFILING_COMMAND_END, 
+			sizeof(cl_ulong), 
+			&t_end, 
+			NULL);
+	assert(errcode == CL_SUCCESS);
+
+	float sgemm_msec = 1.f * (t_end - t_start) / 1e6;
+	double flops_sgemm = 4.0 * (double) NI * (double) NJ * (double) NK;
+	double gigaFlops = (flops_sgemm * 1.0e-9f) / (sgemm_msec / 1000.f);
+
+	printf("Performance= %.2f GFlop/s, Time= %.3f msec, Size= %.0f Ops, WorkgroupSize= %zu threads/block\n",
+			gigaFlops,
+			sgemm_msec,
+			flops_sgemm,
+			localWorkSize[0] * localWorkSize[1]); 
+
+
 }
 
 
@@ -305,7 +336,9 @@ int main(void)
 	t_start = rtclock();
 	gemm(A, B, C);
 	t_end = rtclock(); 
+
 	fprintf(stdout, "CPU Runtime: %0.6lfs\n", t_end - t_start);   
+
 	compareResults(C, C_outputFromGpu);
 	cl_clean_up();
 

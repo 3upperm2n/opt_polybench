@@ -1,9 +1,13 @@
-OpenCL_SDK=/home/scott/NVIDIA_GPU_Computing_SDK
-INCLUDE=-I${OpenCL_SDK}/OpenCL/common/inc
-LIBPATH=-L${OpenCL_SDK}/OpenCL/common/lib -L${OpenCL_SDK}/shared/lib
+CLROOT = /opt/AMDAPP
+CFLAG = -std=c99 -Wall
+
+INCLUDE = -I$(CLROOT)/include
+LIBPATH = -L$(CLROOT)/lib/x86_64 
+
 LIB=-lOpenCL -lm
+
 all:
-	gcc -O3 ${INCLUDE} ${LIBPATH} ${LIB} ${CFILES} -o ${EXECUTABLE}
+	gcc -O3 $(CFLAG) ${INCLUDE} ${LIBPATH} ${LIB} ${CFILES} -o ${EXECUTABLE}
 
 clean:
 	rm -f *~ *.exe
