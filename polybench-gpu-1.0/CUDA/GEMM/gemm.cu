@@ -29,8 +29,8 @@
 #define NK 512
 
 /* Thread block dimensions */
-#define DIM_THREAD_BLOCK_X 32
-#define DIM_THREAD_BLOCK_Y 8
+#define DIM_THREAD_BLOCK_X 32 
+#define DIM_THREAD_BLOCK_Y 8 
 
 /* Declared constant values for ALPHA and BETA (same as values in PolyBench 2.0) */
 #define ALPHA 32412.0f
@@ -140,7 +140,7 @@ __global__ void gemm_kernel(DATA_TYPE *a, DATA_TYPE *b, DATA_TYPE *c)
 
 void gemmCuda(DATA_TYPE* A, DATA_TYPE* B, DATA_TYPE* C, DATA_TYPE* C_outputFromGpu)
 {
-	double t_start, t_end;
+	//double t_start, t_end;
 
 	DATA_TYPE *A_gpu;
 	DATA_TYPE *B_gpu;
@@ -157,13 +157,81 @@ void gemmCuda(DATA_TYPE* A, DATA_TYPE* B, DATA_TYPE* C, DATA_TYPE* C_outputFromG
 	dim3 block(DIM_THREAD_BLOCK_X, DIM_THREAD_BLOCK_Y);
 	dim3 grid((size_t)(ceil( ((float)NI)/ ((float)block.x) )),(size_t)(ceil( ((float)NJ)/ ((float)block.y) )));
 
-	t_start = rtclock();
+    cudaError_t error;
+
+	cudaEvent_t start, stop;
+
+	error = cudaEventCreate(&start);
+	if (error != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to create start event (error code %s)!\n", 
+		cudaGetErrorString(error));
+		exit(EXIT_FAILURE);
+	}
+
+	error = cudaEventCreate(&stop);
+
+	if (error != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to create stop event (error code %s)!\n", 
+		cudaGetErrorString(error));
+		exit(EXIT_FAILURE);
+	}
+
+	// Record the start event
+	error = cudaEventRecord(start, NULL);
+	if (error != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to record start event (error code %s)!\n", 
+		cudaGetErrorString(error));
+		exit(EXIT_FAILURE);
+	}
+
+
 
 	gemm_kernel<<< grid, block >>>(A_gpu, B_gpu, C_gpu);
-	cudaThreadSynchronize();
 
-	t_end = rtclock();
-	fprintf(stdout, "GPU Runtime: %0.6lfs\n", t_end - t_start);
+	// Record the stop event
+	error = cudaEventRecord(stop, NULL);
+	if (error != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to record stop event (error code %s)!\n", 
+		cudaGetErrorString(error));
+		exit(EXIT_FAILURE);
+	}
+
+	// Wait for the stop event to complete
+	error = cudaEventSynchronize(stop);
+	if (error != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to synchronize on the stop event (error code %s)!\n", 
+		cudaGetErrorString(error));
+		exit(EXIT_FAILURE);
+	}
+
+	float sgemm_msec = 0.f;
+	error = cudaEventElapsedTime(&sgemm_msec, start, stop);
+	if (error != cudaSuccess)
+	{
+		fprintf(stderr, "Failed to get time elapsed between events (error code %s)!\n", 
+		cudaGetErrorString(error));
+		exit(EXIT_FAILURE);
+	}
+
+
+
+	// C := alpha*op( A )*op( B ) + beta*C
+	// GEMM performs 4 floating point operations for one data output
+	double flops_sgemm = 4.0 * (double) NI * (double) NJ * (double) NK;
+
+	double gigaFlops = (flops_sgemm * 1.0e-9f) / (sgemm_msec / 1000.f);
+
+	printf("Performance= %.2f GFlop/s, Time= %.3f msec, Size= %.0f Ops, WorkgroupSize= %u threads/block\n",
+			gigaFlops,
+			sgemm_msec,
+			flops_sgemm,
+			block.x * block.y);
+
 
 	cudaMemcpy(C_outputFromGpu, C_gpu, sizeof(DATA_TYPE) * NI * NJ, cudaMemcpyDeviceToHost);    
 	
