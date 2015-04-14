@@ -29,8 +29,8 @@
 #define NK 512
 
 /* Thread block dimensions */
-#define DIM_THREAD_BLOCK_X 32 
-#define DIM_THREAD_BLOCK_Y 8 
+#define DIM_THREAD_BLOCK_X 16 
+#define DIM_THREAD_BLOCK_Y 16 
 
 /* Declared constant values for ALPHA and BETA (same as values in PolyBench 2.0) */
 #define ALPHA 32412.0f
@@ -123,18 +123,51 @@ void GPU_argv_init()
 
 __global__ void gemm_kernel(DATA_TYPE *a, DATA_TYPE *b, DATA_TYPE *c)
 {
-	int j = blockIdx.x * blockDim.x + threadIdx.x;
-	int i = blockIdx.y * blockDim.y + threadIdx.y;
+	__shared__ DATA_TYPE s_a[256]; // 16 x 16 
+	__shared__ DATA_TYPE s_b[256];
 
-	if ((i < NI) && (j < NJ))
-	{	
-		c[i * NJ + j] *= BETA;
+	int bx = blockIdx.x; 
+	int by = blockIdx.y;
+
+	int tx = threadIdx.x;
+	int ty = threadIdx.y;
+	
+	int col = blockIdx.x * blockDim.x + threadIdx.x;
+	int row = blockIdx.y * blockDim.y + threadIdx.y;
+
+	// A : NI x NK
+	// B : NK x NJ
+	int aBegin = NK * 16 * by;
+	int aEnd = aBegin + NK - 1; 
+	int aStep = 16;
+
+	int bBegin = bx * 16;
+	int bStep = 16 * NJ;
+
+	float sum = 0.f;
+	// c[row * NJ + col] *= BETA;
+	//float sum = c[row * NJ + col] * BETA;
+
+	int aa, bb;
+	for(aa = aBegin, bb = bBegin; aa <= aEnd; aa += aStep, bb += bStep)
+	{
+		// load titled sub-matrices into local memory	
+		s_a[ty * 16 + tx] = a[aa + ty * NK + tx];
+		s_b[ty * 16 + tx] = b[bb + ty * NJ + tx];
+		
+		__syncthreads();
+
 		int k;
-		for(k=0; k < NK; k++)
+#pragma unroll
+		for(k = 0; k < 16; ++k)
 		{
-			c[i * NJ + j] += ALPHA * a[i * NK + k] * b[k * NJ +j];
+			sum += s_a[ty * 16 + k] * s_b[k * 16 + tx];
 		}
+
+		__syncthreads();
 	}
+
+	c[row * NJ + col] = ALPHA * sum + c[row * NJ + col] * BETA;
 }
 
 
@@ -155,7 +188,7 @@ void gemmCuda(DATA_TYPE* A, DATA_TYPE* B, DATA_TYPE* C, DATA_TYPE* C_outputFromG
 	cudaMemcpy(C_gpu, C, sizeof(DATA_TYPE) * NI * NJ, cudaMemcpyHostToDevice);
 	
 	dim3 block(DIM_THREAD_BLOCK_X, DIM_THREAD_BLOCK_Y);
-	dim3 grid((size_t)(ceil( ((float)NI)/ ((float)block.x) )),(size_t)(ceil( ((float)NJ)/ ((float)block.y) )));
+	dim3 grid((size_t)(ceil( ((float)NJ)/ ((float)block.x) )),(size_t)(ceil( ((float)NI)/ ((float)block.y) )));
 
     cudaError_t error;
 
