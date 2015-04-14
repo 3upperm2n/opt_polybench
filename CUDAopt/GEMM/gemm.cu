@@ -145,8 +145,6 @@ __global__ void gemm_kernel(DATA_TYPE *a, DATA_TYPE *b, DATA_TYPE *c)
 	int bStep = 16 * NJ;
 
 	float sum = 0.f;
-	// c[row * NJ + col] *= BETA;
-	//float sum = c[row * NJ + col] * BETA;
 
 	int aa, bb;
 	for(aa = aBegin, bb = bBegin; aa <= aEnd; aa += aStep, bb += bStep)
