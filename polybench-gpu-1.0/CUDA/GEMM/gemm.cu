@@ -222,7 +222,7 @@ void gemmCuda(DATA_TYPE* A, DATA_TYPE* B, DATA_TYPE* C, DATA_TYPE* C_outputFromG
 
 	// C := alpha*op( A )*op( B ) + beta*C
 	// GEMM performs 4 floating point operations for one data output
-	double flops_sgemm = 4.0 * (double) NI * (double) NJ * (double) NK;
+	double flops_sgemm = 5.0 * (double) NI * (double) NJ * (double) NK;
 
 	double gigaFlops = (flops_sgemm * 1.0e-9f) / (sgemm_msec / 1000.f);
 
@@ -264,6 +264,7 @@ int main(int argc, char *argv[])
 	t_start = rtclock();	
 	gemm(A, B, C);
 	t_end = rtclock();
+
 	fprintf(stdout, "CPU Runtime: %0.6lfs\n", t_end - t_start);
 	
 	compareResults(C, C_outputFromGpu);
