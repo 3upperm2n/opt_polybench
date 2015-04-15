@@ -252,8 +252,8 @@ void gemmCuda(DATA_TYPE* A, DATA_TYPE* B, DATA_TYPE* C, DATA_TYPE* C_outputFromG
 
 
 	// C := alpha*op( A )*op( B ) + beta*C
-	// GEMM performs 4 floating point operations for one data output
-	double flops_sgemm = 4.0 * (double) NI * (double) NJ * (double) NK;
+	// GEMM performs 5 floating point operations for one data output
+	double flops_sgemm = 5.f * (double) NI * (double) NJ * (double) NK;
 
 	double gigaFlops = (flops_sgemm * 1.0e-9f) / (sgemm_msec / 1000.f);
 
